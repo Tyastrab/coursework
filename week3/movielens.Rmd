@@ -148,11 +148,28 @@ movie_score <- ratings %>%
 ratings %>% 
   group_by(user_id) %>% 
   left_join(movie_score) %>% 
-  summarize(min_movie = max(movie_rank)) %>% 
-  group_by(min_movie) %>% 
+  summarize(hundred = max(movie_rank)) %>% 
+  group_by(hundred) %>% 
   summarize(satisfied_people = n()/71567) %>% 
   mutate(percent = cumsum(satisfied_people)) %>% 
-  ggplot(aes(x = min_movie, y = percent)) +
-    geom_line()
-  
+  ggplot(aes(x = hundred, y = percent)) +
+    geom_line() +
+    xlab("Inventory Size")+
+    ylab("Percent of Users Satisfied (100%)")
+    
+    
+ratings %>% 
+  group_by(user_id) %>% 
+  left_join(movie_score) %>% 
+  summarize(max_movie = max(movie_rank), 
+    ninety = quantile(movie_rank, probs = c(0.9), na.rm = FALSE)) %>% 
+  group_by(ninety) %>% 
+  summarize(satisfied_people = n()/71567) %>% 
+  mutate(percent = cumsum(satisfied_people)) %>% 
+  ggplot(aes(x = ninety, y = percent)) +
+    geom_line() +
+    xlab("Inventory Size")+
+    ylab("Percent of Users Satisfied (90%)")
+
+
 
