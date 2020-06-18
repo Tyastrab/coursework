@@ -1,0 +1,155 @@
+---
+title: "predict_citibike.Rmd"
+author: "Tamar Yastrab"
+date: "6/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(scales)
+library(modelr)
+library(lubridate)
+
+theme_set(theme_bw())
+options(repr.plot.width=4, repr.plot.height=3)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r load-data}
+
+trips_per_day <- read_tsv('trips_per_day.tsv')
+construction <- read_tsv('complaints.tsv',
+                    col_names = c('date', 'issue', 'ZIP_code'))
+
+construction <- construction %>% 
+  mutate(ymd = as.Date(date,c("%m/%d/%Y"))) %>% 
+  group_by(ymd) %>% 
+  summarize(count = n())
+
+trips_per_day <- trips_per_day %>%  
+  mutate(weekday = between(wday(ymd),2,6)) %>% 
+  left_join(construction, by ="ymd")
+
+head(trips_per_day)  
+
+```
+
+```{r graph-data}
+ggplot(trips_per_day, aes(x = tmin, y = num_trips, color = weekday)) +
+  geom_point() +
+  xlab('Minimum temperature') +
+  ylab('Daily trips') +
+  scale_y_continuous()
+```
+
+
+```{r Shuffle-data and validation-split}
+set.seed(0) # random number generator 
+
+num_days <- nrow(trips_per_day)
+frac_train <- 0.8 # train on 80% of the data
+num_train <- floor(num_days * frac_train)
+
+# randomly sample rows for the training set 
+ndx <- sample(1:num_days, num_train, replace=F)
+
+# used to fit the model
+trips_per_day_train <- trips_per_day[ndx, ] 
+
+# used to evaluate the fit
+trips_per_day_remaining <- trips_per_day[-ndx, ]
+num_remaining = floor(nrow(trips_per_day_remaining)/2)
+
+ndx2 <- sample(1:nrow(trips_per_day_remaining), num_remaining, replace = F)
+trips_per_day_validate <- trips_per_day_remaining[ndx2, ]
+trips_per_day_test <- trips_per_day_remaining[-ndx2, ] 
+
+```
+
+
+```{r fit polynomial for each degree }
+K <- 1:8 # degree of line
+train_err <- c()
+validate_err <- c()
+for (k in K) {
+  
+    # fit on the training data
+    model <- lm(num_trips ~ poly(tmin, k, raw = T) - count, data=trips_per_day_train)
+    
+    # evaluate on the training data
+    train_err[k] <- sqrt(mean((predict(model, trips_per_day_train) - trips_per_day_train$num_trips)^2))
+
+    # evaluate on the validate data
+    validate_err[k] <- sqrt(mean((predict(model, trips_per_day_validate) - trips_per_day_validate$num_trips)^2))
+}
+```
+
+Now we'll plot the training and validation error as a function of the polynomial degree.
+```{r }
+plot_data <- data.frame(K, train_err, validate_err) %>%
+  gather("split", "error", -K)
+
+ggplot(plot_data, aes(x=K, y=error, color=split)) +
+  geom_line() +
+  scale_x_continuous(breaks=K) +
+  xlab('Polynomial Degree') +
+  ylab('RMSE')
+```
+
+```{r }
+model <- lm(num_trips ~ poly(tmin, 4, raw = T) - count, data = trips_per_day_train)
+
+trips_per_day_train <- trips_per_day_train %>%
+  add_predictions(model) %>%
+  mutate(split = "train")
+trips_per_day_validate <- trips_per_day_validate %>%
+  add_predictions(model) %>%
+  mutate(split = "validate")
+plot_data <- bind_rows(trips_per_day_train, trips_per_day_validate)
+
+ggplot(plot_data, aes(x = tmin, y = num_trips)) +
+  geom_point(aes(color = split)) +
+  geom_line(aes(y = pred)) +
+  xlab('Minimum temperature') +
+  ylab('Daily trips') +
+  scale_y_continuous()
+
+```
+
+```{r test-data }
+# chose final k
+test_err = sqrt(mean((predict(model, trips_per_day_test) -  trips_per_day_test$num_trips)^2))
+
+trips_per_day_train <- trips_per_day_train %>%
+  add_predictions(model) %>%
+  mutate(split = "train")
+trips_per_day_validate <- trips_per_day_validate %>%
+  add_predictions(model) %>%
+  mutate(split = "validate")
+trips_per_day_test <- trips_per_day_test %>%
+  add_predictions(model) %>%
+  mutate(split = "test")
+plot_data <- bind_rows(trips_per_day_train, trips_per_day_validate, trips_per_day_test)
+
+ggplot(plot_data, aes(x = tmin, y = num_trips)) +
+  geom_point(aes(color = split)) +
+  geom_line(aes(y = pred)) +
+  xlab('Minimum temperature') +
+  ylab('Daily trips') +
+  scale_y_continuous()
+
+```
